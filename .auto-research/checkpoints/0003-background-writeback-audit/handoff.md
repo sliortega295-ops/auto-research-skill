@@ -1,12 +1,17 @@
 # Checkpoint 0003: Background GitHub writeback audit
 
-- Status: verified
+- Status: superseded before web review
 - Reviewed code/result commit C: [`068044269f345bac7b31c8db1a4d594e580b3443`](https://github.com/sliortega295-ops/auto-research-skill/commit/068044269f345bac7b31c8db1a4d594e580b3443)
 - Branch: [`auto-research/initial-audit`](https://github.com/sliortega295-ops/auto-research-skill/tree/auto-research/initial-audit)
 - Parent checkpoint: `.auto-research/checkpoints/0002-direct-writeback-audit` (superseded before review)
 - Pro write allowlist:
   - `.auto-research/checkpoints/0003-background-writeback-audit/pro-review.md`
   - `.auto-research/checkpoints/0003-background-writeback-audit/pro-plan.md`
+
+This checkpoint was never sent to ChatGPT Pro. The first live background test
+showed that a project row is an expand/collapse control and exposes a separate
+`Open project home` action. Commit `763b456` implements and validates that
+actual UI path; checkpoint 0004 reviews the resulting candidate.
 
 ## Objective and scope
 
