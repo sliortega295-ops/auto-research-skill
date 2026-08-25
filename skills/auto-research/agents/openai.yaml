@@ -1,0 +1,6 @@
+interface:
+  display_name: "Auto Research"
+  short_description: "Run explicit Codex work with sparse Pro audits"
+  default_prompt: "Use $auto-research with my supplied plan. Execute independently and consult the bound ChatGPT Pro conversation only for consequential uncertainty, stalled progress, major milestones, and the required final audit."
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,4 @@
+interface:
+  display_name: "AdsPower ChatGPT"
+  short_description: "Inspect and operate ChatGPT in AdsPower safely"
+  default_prompt: "Use $adspower-chatgpt to inspect my current AdsPower ChatGPT conversation."
