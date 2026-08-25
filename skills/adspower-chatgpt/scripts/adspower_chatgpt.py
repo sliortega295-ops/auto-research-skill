@@ -458,6 +458,83 @@ PROJECT_LINKS_JS = r"""
 """
 
 
+def click_exact_project(cdp: CDP, project_name: str) -> dict[str, Any]:
+    target_json = json.dumps(" ".join(project_name.split()), ensure_ascii=False)
+    expression = rf"""
+(async () => {{
+  const target = {target_json};
+  const normalize = (value) => (value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+  const firstLine = (value) => (value || '').split(/\n/).map((line) => line.trim()).find(Boolean) || '';
+  const isRendered = (element) => {{
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+  }};
+  const nodes = [...document.querySelectorAll('a, button, [role="link"], [role="button"]')].filter(isRendered);
+  const candidates = nodes.map((element) => {{
+    const raw = element.innerText || element.getAttribute('aria-label') || '';
+    return {{element, label: firstLine(raw), href: element.href || null, tag: element.tagName}};
+  }}).filter((item) => item.label);
+  const matches = candidates.filter((item) => normalize(item.label) === normalize(target));
+  if (matches.length !== 1) {{
+    const labels = [...new Set(candidates.map((item) => item.label))].sort();
+    return {{
+      ok: false,
+      reason: matches.length ? 'project label matched multiple clickable controls' : 'exact project control not found',
+      match_count: matches.length,
+      candidates: labels,
+    }};
+  }}
+  const projectControl = matches[0].element;
+  if (projectControl.getAttribute('aria-expanded') !== 'true') {{
+    projectControl.click();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }}
+  const attributes = Object.fromEntries([...projectControl.attributes].map((attr) => [attr.name, attr.value]));
+  const describe = (node) => ({{
+    tag: node.tagName,
+    text: firstLine(node.innerText || ''),
+    aria_label: node.getAttribute('aria-label'),
+    title: node.getAttribute('title'),
+    testid: node.getAttribute('data-testid'),
+    role: node.getAttribute('role'),
+    href: node.href || null,
+  }});
+  const row = projectControl.parentElement;
+  const controlled = document.getElementById(projectControl.getAttribute('aria-controls') || '');
+  const homeButtons = row ? [...row.querySelectorAll('button')].filter((button) =>
+    normalize(button.getAttribute('aria-label') || '') === normalize('Open project home')
+  ) : [];
+  if (homeButtons.length !== 1) {{
+    return {{
+      ok: false,
+      reason: homeButtons.length ? 'project row exposed multiple home controls' : 'project home control not found',
+      row_controls: row ? [...row.querySelectorAll('a, button, [role="link"], [role="button"]')].map(describe) : [],
+    }};
+  }}
+  homeButtons[0].click();
+  return {{
+    ok: true,
+    action: 'open-project-home',
+    label: matches[0].label,
+    href: matches[0].href,
+    tag: matches[0].tag,
+    attributes,
+    row_controls: row ? [...row.querySelectorAll('a, button, [role="link"], [role="button"]')].map(describe) : [],
+    controlled_controls: controlled ? [...controlled.querySelectorAll('a, button, [role="link"], [role="button"]')].map(describe) : [],
+    controlled_text: (controlled?.innerText || '').trim().slice(0, 1000),
+  }};
+}})()
+"""
+    result = cdp.evaluate(expression, await_promise=True)
+    if not isinstance(result, dict) or not result.get("ok"):
+        detail = result if isinstance(result, dict) else {}
+        candidates = detail.get("candidates") or []
+        suffix = f" Available clickable labels: {candidates}" if candidates else ""
+        raise SkillError(detail.get("reason", "Could not click the exact ChatGPT project") + suffix)
+    return result
+
+
 MODEL_STATE_JS = r"""
 (() => {
   const isVisible = (el) => {
@@ -713,6 +790,20 @@ def create_background_target(environment: dict[str, Any], url: str) -> dict[str,
     raise SkillError("The new background ChatGPT target did not become available")
 
 
+def close_target(environment: dict[str, Any], target_id: str) -> None:
+    version = http_json(f"http://127.0.0.1:{environment['cdp_port']}/json/version")
+    websocket_url = version.get("webSocketDebuggerUrl") if isinstance(version, dict) else None
+    if not websocket_url:
+        raise SkillError("AdsPower browser target does not expose a browser-level CDP WebSocket")
+    browser = CDP(websocket_url)
+    try:
+        result = browser.call("Target.closeTarget", {"targetId": target_id})
+    finally:
+        browser.close()
+    if isinstance(result, dict) and result.get("success") is False:
+        raise SkillError("CDP could not close the task-created background target")
+
+
 def wait_for_editor(cdp: CDP, timeout: float = 20.0) -> dict[str, Any]:
     deadline = time.monotonic() + timeout
     state = inspect(cdp)
@@ -722,6 +813,28 @@ def wait_for_editor(cdp: CDP, timeout: float = 20.0) -> dict[str, Any]:
         time.sleep(0.25)
         state = inspect(cdp)
     return state
+
+
+def wait_for_project_page(cdp: CDP, timeout: float = 20.0) -> tuple[str, dict[str, Any]]:
+    deadline = time.monotonic() + timeout
+    state = inspect(cdp)
+    while True:
+        current_url = state.get("url")
+        if isinstance(current_url, str):
+            try:
+                project_url = canonical_project_url(current_url)
+            except SkillError:
+                project_url = None
+            if project_url and state.get("editor_present"):
+                return project_url, state
+        if time.monotonic() >= deadline:
+            raise SkillError(
+                "The exact project click did not reach a ready ChatGPT project page; "
+                f"observed url={state.get('url')!r}, title={state.get('title')!r}, "
+                f"editor_present={state.get('editor_present')!r}"
+            )
+        time.sleep(0.25)
+        state = inspect(cdp)
 
 
 def normalize_label(value: str | None) -> str:
@@ -1022,23 +1135,52 @@ def command_tabs(args: argparse.Namespace) -> None:
 def command_open_project(args: argparse.Namespace) -> None:
     require_confirm(args)
     environment = select_environment(args.environment)
-    project_url, available = find_project_url(environment, args.project_name)
-    tab = create_background_target(environment, project_url)
+    project_name = " ".join(args.project_name.split())
+    if not project_name:
+        raise SkillError("Project name is empty")
+    available: list[str] = []
+    try:
+        project_url, available = find_project_url(environment, project_name)
+    except SkillError as exc:
+        if not str(exc).startswith("No exact ChatGPT project matched"):
+            raise
+        project_url = None
+    tab = create_background_target(environment, project_url or "https://chatgpt.com/")
     websocket_url = tab.get("webSocketDebuggerUrl")
     if not websocket_url:
+        close_target(environment, str(tab.get("id") or ""))
         raise SkillError("The new background ChatGPT tab does not expose a CDP WebSocket")
     cdp = CDP(websocket_url)
     try:
         state = wait_for_editor(cdp)
-    finally:
+        if project_url is None:
+            clicked = click_exact_project(cdp, project_name)
+            if not clicked.get("href") and clicked.get("action") != "open-project-home":
+                time.sleep(1.0)
+                after_click = inspect(cdp)
+                if after_click.get("url") == state.get("url"):
+                    raise SkillError(
+                        "The exact project control did not navigate the background page; "
+                        f"clicked_control={clicked}"
+                    )
+            try:
+                project_url, state = wait_for_project_page(cdp)
+            except SkillError as exc:
+                raise SkillError(f"{exc}; clicked_control={clicked}") from exc
+    except Exception:
+        cdp.close()
+        close_target(environment, str(tab["id"]))
+        raise
+    else:
         cdp.close()
     if state.get("visibility") == "visible":
+        close_target(environment, str(tab["id"]))
         raise SkillError("The new project target unexpectedly became the visible browser tab")
     emit(
         {
             "action": "open-project",
             "environment": environment["environment"],
-            "project_name": " ".join(args.project_name.split()),
+            "project_name": project_name,
             "project_url": project_url,
             "available_projects": available,
             "tab": tab_summary(tab),
