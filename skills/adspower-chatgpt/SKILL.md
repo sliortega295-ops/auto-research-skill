@@ -139,8 +139,13 @@ python3 "$helper" --environment "$environment_name" \
 # assistant message and an idle page, avoiding an early return before generation.
 python3 "$helper" --environment "$environment_name" \
   --conversation-url "$conversation" \
-  wait --after-assistant-count <prior-count> --timeout 1800
+  wait --after-assistant-count <prior-count>
 ```
+
+`wait` has no deadline by default because Pro reasoning can routinely take
+longer than ten minutes. Use `--timeout <seconds>` only when the user explicitly
+requests a bounded standalone wait; never add a preset timeout to an
+`$auto-research` consultation.
 
 After waiting, inspect again. A send is not successful merely because the DOM
 button was clicked; verify the new user message, new assistant count, idle

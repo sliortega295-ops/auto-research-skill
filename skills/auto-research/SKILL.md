@@ -110,8 +110,9 @@ When consultation is justified, follow
    next plan to `pro-plan.md`, and commit those two files as `P`. Its webpage
    reply should be only a short receipt: write status, commit SHA, paths, and a
    brief summary or blocker.
-6. Wait synchronously in the background for that receipt and for the page to
-   become idle. Do not export the conversation, take foreground control, or
+6. Wait synchronously in the background, without a preset timeout, for that
+   receipt and for the page to become idle. Pro reasoning can routinely exceed
+   ten minutes. Do not export the conversation, take foreground control, or
    work on other project tasks while waiting.
 7. Fetch GitHub and verify that `P` descends from `H` and changes only the two
    allowed files in the active checkpoint. Stop on any source-code or

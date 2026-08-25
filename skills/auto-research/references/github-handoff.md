@@ -110,6 +110,10 @@ FILES: <the two allowed paths actually changed>
 SUMMARY: <one short paragraph or exact blocker>
 ```
 
+Wait for Pro without a preset timeout. A long reasoning interval is not a
+failure condition; finish only when the page becomes idle with a receipt or the
+user explicitly interrupts the consultation.
+
 Do not ask Pro to modify code or implement its own plan. Do not paste the
 repository, large logs, credentials, or private data into the conversation.
 Record the exact target and complete outgoing prompt in commentary before the

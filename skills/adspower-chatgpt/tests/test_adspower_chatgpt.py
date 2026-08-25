@@ -262,6 +262,42 @@ class AdsPowerChatGPTTests(unittest.TestCase):
         self.assertFalse(output["state"]["generating"])
         self.assertTrue(cdp.closed)
 
+    def test_wait_has_no_deadline_when_timeout_is_omitted(self):
+        cdp = FakeCDP([])
+        states = [
+            {"generating": True, "assistant_message_count": 2},
+            {"generating": False, "assistant_message_count": 3},
+        ]
+        args = type(
+            "Args",
+            (),
+            {"timeout": None, "interval": 0.001, "after_assistant_count": 2},
+        )()
+        with (
+            mock.patch.object(
+                MODULE,
+                "open_selected",
+                return_value=(
+                    {"environment": "env"},
+                    {"id": "tab", "title": "Project", "url": "https://chatgpt.com/c/id"},
+                    cdp,
+                ),
+            ),
+            mock.patch.object(MODULE, "inspect", side_effect=states),
+            mock.patch.object(MODULE.time, "sleep", return_value=None),
+            mock.patch.object(
+                MODULE.time,
+                "monotonic",
+                side_effect=AssertionError("an unlimited wait must not compute a deadline"),
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as stream,
+        ):
+            MODULE.command_wait(args)
+        output = json.loads(stream.getvalue())
+        self.assertEqual(output["state"]["assistant_message_count"], 3)
+        self.assertFalse(output["state"]["generating"])
+        self.assertTrue(cdp.closed)
+
 
 if __name__ == "__main__":
     unittest.main()

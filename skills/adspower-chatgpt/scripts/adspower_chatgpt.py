@@ -1362,21 +1362,21 @@ def command_draft_or_send(args: argparse.Namespace, should_send: bool) -> None:
 
 
 def command_wait(args: argparse.Namespace) -> None:
-    if args.timeout <= 0:
+    if args.timeout is not None and args.timeout <= 0:
         raise SkillError("--timeout must be positive")
     if args.interval <= 0:
         raise SkillError("--interval must be positive")
     if args.after_assistant_count is not None and args.after_assistant_count < 0:
         raise SkillError("--after-assistant-count must be non-negative")
     environment, tab, cdp = open_selected(args)
-    deadline = time.monotonic() + args.timeout
+    deadline = None if args.timeout is None else time.monotonic() + args.timeout
     try:
         state = inspect(cdp)
         while state.get("generating") or (
             args.after_assistant_count is not None
             and state.get("assistant_message_count", 0) <= args.after_assistant_count
         ):
-            if time.monotonic() >= deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 if state.get("generating"):
                     reason = "ChatGPT was still generating"
                 else:
@@ -1443,7 +1443,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     wait = subparsers.add_parser("wait", help="Wait until ChatGPT is no longer generating")
-    wait.add_argument("--timeout", type=float, default=180.0)
+    wait.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        help="Optional positive timeout in seconds; omitted means wait indefinitely",
+    )
     wait.add_argument("--interval", type=float, default=1.0)
     wait.add_argument(
         "--after-assistant-count",
