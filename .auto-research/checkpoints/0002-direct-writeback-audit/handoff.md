@@ -1,12 +1,17 @@
 # Checkpoint 0002: Direct GitHub writeback audit
 
-- Status: verified
+- Status: superseded before web review
 - Reviewed code/result commit C: [`80c5361e049fe9af2268857a173b5c0efe352f6c`](https://github.com/sliortega295-ops/auto-research-skill/commit/80c5361e049fe9af2268857a173b5c0efe352f6c)
 - Branch: [`auto-research/initial-audit`](https://github.com/sliortega295-ops/auto-research-skill/tree/auto-research/initial-audit)
 - Parent checkpoint: `.auto-research/checkpoints/0001-initial-skill-audit`
 - Pro write allowlist:
   - `.auto-research/checkpoints/0002-direct-writeback-audit/pro-review.md`
   - `.auto-research/checkpoints/0002-direct-writeback-audit/pro-plan.md`
+
+This checkpoint was never sent to ChatGPT Pro. It was superseded after the user
+clarified that browser automation must not take over the foreground mouse,
+keyboard, window, or active tab. Checkpoint 0003 reviews the corrected
+background-CDP design.
 
 ## Objective and scope
 
