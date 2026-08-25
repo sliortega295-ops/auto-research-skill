@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -17,7 +16,6 @@ from typing import Any
 
 
 REGISTRY_VERSION = 1
-SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class RegistryError(RuntimeError):
@@ -201,26 +199,11 @@ def command_bind(args: argparse.Namespace, path: Path) -> None:
         current_identity = {key: existing.get(key) for key in desired_identity}
         if current_identity != desired_identity and not args.replace:
             raise RegistryError(f"Binding already exists for {repo_key}; use --replace to change it")
-        if existing.get("conversation_url") == conversation_url:
-            archive_count = existing.get("last_archived_message_count", 0)
-            archive_sha = existing.get("last_archived_message_sha256")
-            archive_prefix_sha = existing.get("last_archived_prefix_sha256")
-            bound_at = existing.get("bound_at") or timestamp()
-        else:
-            archive_count = 0
-            archive_sha = None
-            archive_prefix_sha = None
-            bound_at = timestamp()
+        bound_at = existing.get("bound_at") or timestamp()
     else:
-        archive_count = 0
-        archive_sha = None
-        archive_prefix_sha = None
         bound_at = timestamp()
     projects[repo_key] = {
         **desired_identity,
-        "last_archived_message_count": archive_count,
-        "last_archived_message_sha256": archive_sha,
-        "last_archived_prefix_sha256": archive_prefix_sha,
         "bound_at": bound_at,
         "updated_at": timestamp(),
     }
@@ -237,146 +220,6 @@ def command_get(args: argparse.Namespace, path: Path) -> None:
 def command_list(_: argparse.Namespace, path: Path) -> None:
     registry = load_registry(path)
     emit({"registry": str(path), "projects": registry["projects"]})
-
-
-def load_bound_transcript(
-    args: argparse.Namespace,
-    entry: dict[str, Any],
-) -> tuple[Path, dict[str, Any], list[dict[str, Any]]]:
-    transcript_path = Path(args.transcript).expanduser().resolve()
-    try:
-        transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RegistryError(f"Could not read transcript export: {exc}") from exc
-    if not isinstance(transcript, dict):
-        raise RegistryError("Transcript export must be a JSON object")
-    messages = transcript.get("messages")
-    if not isinstance(messages, list) or any(not isinstance(item, dict) for item in messages):
-        raise RegistryError("Transcript export does not contain a valid messages list")
-    if transcript.get("message_count") != len(messages):
-        raise RegistryError("Transcript message count does not match its messages list")
-    tab = transcript.get("tab")
-    exported_url = tab.get("url") if isinstance(tab, dict) else None
-    if not isinstance(exported_url, str):
-        raise RegistryError("Transcript export does not identify its ChatGPT conversation URL")
-    try:
-        exported_url = canonical_conversation_url(exported_url)
-    except RegistryError as exc:
-        raise RegistryError(f"Transcript conversation URL is invalid: {exc}") from exc
-    if exported_url != entry.get("conversation_url"):
-        raise RegistryError("Transcript export came from a different ChatGPT conversation")
-    if transcript.get("environment") != entry.get("environment"):
-        raise RegistryError("Transcript export came from a different AdsPower environment")
-    for expected_index, message in enumerate(messages):
-        if message.get("index") != expected_index:
-            raise RegistryError("Transcript message indexes are not contiguous")
-        text = message.get("text")
-        sha = message.get("sha256")
-        if message.get("role") not in {"user", "assistant"}:
-            raise RegistryError("Transcript message role is invalid")
-        if (
-            not isinstance(text, str)
-            or not isinstance(sha, str)
-            or not SHA256_RE.fullmatch(sha)
-        ):
-            raise RegistryError("Transcript message text or SHA-256 is invalid")
-        if hashlib.sha256(text.encode("utf-8")).hexdigest() != sha:
-            raise RegistryError("Transcript message SHA-256 verification failed")
-    return transcript_path, transcript, messages
-
-
-def prefix_sha256(messages: list[dict[str, Any]], count: int) -> str | None:
-    if count == 0:
-        return None
-    material = json.dumps(
-        [
-            {"index": item["index"], "role": item["role"], "sha256": item["sha256"]}
-            for item in messages[:count]
-        ],
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(material).hexdigest()
-
-
-def verify_archive_marker(entry: dict[str, Any], messages: list[dict[str, Any]]) -> int:
-    count = entry.get("last_archived_message_count", 0)
-    marker = entry.get("last_archived_message_sha256")
-    prefix_marker = entry.get("last_archived_prefix_sha256")
-    if not isinstance(count, int) or count < 0 or count > len(messages):
-        raise RegistryError("Stored message count is incompatible with the current conversation")
-    if count == 0:
-        if marker is not None or prefix_marker is not None:
-            raise RegistryError("Stored zero-message marker is inconsistent")
-        return 0
-    if not isinstance(marker, str) or not SHA256_RE.fullmatch(marker):
-        raise RegistryError("Stored archive marker is invalid")
-    if messages[count - 1].get("sha256") != marker:
-        raise RegistryError(
-            "Conversation history changed before the archive marker; resynchronize explicitly"
-        )
-    if prefix_marker is not None:
-        if not isinstance(prefix_marker, str) or not SHA256_RE.fullmatch(prefix_marker):
-            raise RegistryError("Stored archive prefix marker is invalid")
-        if prefix_sha256(messages, count) != prefix_marker:
-            raise RegistryError(
-                "Conversation history changed before the archive marker; resynchronize explicitly"
-            )
-    return count
-
-
-def command_mark_archived(args: argparse.Namespace, path: Path) -> None:
-    root, repo_key = repository_identity(args.repo)
-    registry = load_registry(path)
-    entry = require_entry(registry, repo_key)
-    transcript_path, _, messages = load_bound_transcript(args, entry)
-    previous_count = verify_archive_marker(entry, messages)
-    entry["last_archived_message_count"] = len(messages)
-    entry["last_archived_message_sha256"] = messages[-1]["sha256"] if messages else None
-    entry["last_archived_prefix_sha256"] = prefix_sha256(messages, len(messages))
-    entry["updated_at"] = timestamp()
-    write_registry(path, registry)
-    emit(
-        {
-            "action": "mark-archived",
-            "repo_root": str(root),
-            "repo_key": repo_key,
-            "transcript": str(transcript_path),
-            "previous_message_count": previous_count,
-            "binding": entry,
-        }
-    )
-
-
-def command_pending(args: argparse.Namespace, path: Path) -> None:
-    root, repo_key = repository_identity(args.repo)
-    registry = load_registry(path)
-    entry = require_entry(registry, repo_key)
-    transcript_path, _, messages = load_bound_transcript(args, entry)
-    start = verify_archive_marker(entry, messages)
-    pending = messages[start:]
-    emit(
-        {
-            "repo_root": str(root),
-            "repo_key": repo_key,
-            "transcript": str(transcript_path),
-            "baseline_message_count": start,
-            "current_message_count": len(messages),
-            "pending_message_count": len(pending),
-            "pending": [
-                {
-                    "index": item.get("index"),
-                    "role": item.get("role"),
-                    "sha256": item.get("sha256"),
-                    "characters": len(item.get("text", "")),
-                }
-                for item in pending
-            ],
-            "latest_message_sha256": (
-                messages[-1].get("sha256") if messages and isinstance(messages[-1], dict) else None
-            ),
-        }
-    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -396,13 +239,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("list", help="List all local bindings")
 
-    mark_parser = subparsers.add_parser("mark-archived", help="Advance a repository transcript marker")
-    mark_parser.add_argument("--repo", required=True)
-    mark_parser.add_argument("--transcript", required=True)
-
-    pending_parser = subparsers.add_parser("pending", help="Verify a transcript and summarize new messages")
-    pending_parser.add_argument("--repo", required=True)
-    pending_parser.add_argument("--transcript", required=True)
     return parser
 
 
@@ -417,10 +253,6 @@ def main() -> int:
             command_get(args, path)
         elif args.command == "list":
             command_list(args, path)
-        elif args.command == "mark-archived":
-            command_mark_archived(args, path)
-        elif args.command == "pending":
-            command_pending(args, path)
         else:
             parser.error(f"Unknown command: {args.command}")
     except RegistryError as exc:

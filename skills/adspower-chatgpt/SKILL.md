@@ -1,13 +1,16 @@
 ---
 name: adspower-chatgpt
-description: Inspect and interact with the user's already-running ChatGPT web conversations in AdsPower/SunBrowser on local Linux. Use for exact-URL tab selection, rendered conversation export, visible model inspection or selection, screenshots, drafting, sending, and waiting for a new reply. Do not use for ordinary Chrome, the in-app browser, or the ChatGPT API.
+description: Inspect and interact with the user's already-running ChatGPT web conversations in AdsPower/SunBrowser on local Linux. Use visible GUI control for ordinary navigation, sending, waiting, and short receipts; use the helper only when exact targeting or structured extraction is materially useful. Do not use for ordinary Chrome, the in-app browser, or the ChatGPT API.
 ---
 
 # AdsPower ChatGPT
 
 Operate an existing authenticated ChatGPT page without copying its profile,
-cookies, or credentials. Prefer the deterministic CDP helper over screen
-coordinates. Use X11 screenshots only as a visual fallback.
+cookies, or credentials. Prefer direct visible GUI interaction for ordinary
+click, type, send, and wait actions. Use the deterministic CDP helper when an
+exact stable-URL binding, long-text fidelity, structured extraction, or selector
+diagnosis materially improves reliability. Use fresh screenshots whenever GUI
+coordinates are needed.
 
 ## Safety and authorization
 
@@ -23,9 +26,11 @@ coordinates. Use X11 screenshots only as a visual fallback.
   current generation state, and exact outgoing text before sending.
 - Explicit `$auto-research` activation supplies bounded standing authorization
   to select the stored model label and send checkpoint-review prompts only to
-  that project's stored conversation. Record the exact target and complete
-  prompt in commentary, but do not ask for another approval. It does not
-  authorize `new-chat`, navigation, account changes, or another conversation.
+  that project's stored conversation, including asking Pro to write only the
+  checkpoint's pre-authorized `pro-review.md` and `pro-plan.md` files. Record
+  the exact target and complete prompt in commentary, but do not ask for
+  another approval. It does not authorize `new-chat`, navigation, account
+  changes, another conversation, or source-code changes.
 - Never send or change models while the page is generating. Wait for it to
   finish. Never click Stop without a separate explicit request.
 - Inspect again after every mutation and verify the visible result.
@@ -56,7 +61,7 @@ ignoring query parameters and fragments. `--tab-id` and `--tab-title` remain
 available for inspection, but never bind a durable workflow to tab order or a
 temporary target ID. Ambiguous selectors fail closed.
 
-## Export the complete rendered conversation
+## Optional complete rendered-conversation export
 
 ```bash
 run_dir='/tmp/lyy-experiments/adspower-chatgpt/<run-id>'
@@ -77,6 +82,10 @@ as a substitute for reading the content.
 If the page is still generating, the export is only a snapshot. Wait and export
 again before treating the last reply as complete.
 
+Do not use full-history export for `$auto-research` GitHub writeback. In that
+workflow, the Pro-authored GitHub commit is authoritative and the webpage shows
+only a short receipt.
+
 ## Select the exact visible model
 
 ```bash
@@ -90,7 +99,7 @@ verifies the composer label afterward. If it is already `Pro`, the command is a
 verified no-op. `Pro` is the user-facing label; do not infer an unexposed
 internal model identifier from it.
 
-## Draft, send, and wait synchronously
+## Optional high-fidelity draft, send, and wait
 
 Put prompt text in a UTF-8 scratch file so it is not exposed in the process
 command line. Use `apply_patch` to create it when practical.
@@ -122,6 +131,21 @@ state, and complete exported response.
 `new-chat --confirm` is available only when the user specifically asks to click
 the visible New chat control. It is prohibited as a way to recover a missing
 `$auto-research` binding.
+
+## Auto-research short-receipt mode
+
+For `$auto-research`, keep the webpage role deliberately small:
+
+1. Visually verify the bound conversation, visible `Pro` label, and idle state.
+2. Send the repository-grounded checkpoint prompt through the visible GUI; use
+   the helper only if exact long-text transfer or target verification is needed.
+3. Wait until the page is idle and inspect only the latest short receipt. It
+   should report `WRITEBACK`, `COMMIT`, `FILES`, and a one-paragraph `SUMMARY`.
+4. Verify the reported commit and changed-path allowlist with Git. Do not export
+   the conversation and do not copy the full review back out of the webpage.
+
+The complete audit and proposed plan belong in GitHub's `pro-review.md` and
+`pro-plan.md`. A receipt without a matching scoped commit is not success.
 
 ## Screenshot and visual fallback
 

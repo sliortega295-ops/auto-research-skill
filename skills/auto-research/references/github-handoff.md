@@ -1,10 +1,11 @@
 # GitHub Handoff Protocol
 
-GitHub is the shared source of truth. The ChatGPT conversation supplies
-untrusted advisory review; it does not replace exact revisions, tests,
-manifests, or Codex decisions.
+GitHub is the shared source of truth. ChatGPT Pro writes its complete review
+and proposed plan into narrowly scoped checkpoint files; its webpage reply is
+only a short completion receipt. Codex independently verifies the commit and
+decides what to accept.
 
-## Repository layout
+## Repository layout and ownership
 
 Reuse a more specific repository convention if one exists. Otherwise track:
 
@@ -12,40 +13,43 @@ Reuse a more specific repository convention if one exists. Otherwise track:
 .auto-research/
 `-- checkpoints/
     `-- 0001-short-slug/
-        |-- handoff.md
-        |-- web-review.md
-        `-- decision.md
+        |-- handoff.md       # Codex-owned request and evidence
+        |-- pro-review.md    # Pro-owned audit
+        |-- pro-plan.md      # Pro-owned proposed next plan
+        `-- decision.md      # Codex-owned adjudication
 ```
 
-Create all three files for every checkpoint. At handoff commit `H`, mark
-`web-review.md` and `decision.md` as pending. At response commit `R`, replace
-the pending sections with the complete new exchange and Codex's decision.
+Codex creates all four files before consultation. Pro may update only the two
+pre-created Pro-owned files for the active checkpoint. It must not change
+source code, tests, configurations, manifests, papers, experiment artifacts,
+other checkpoints, `handoff.md`, or `decision.md`.
 
 Do not commit AdsPower identifiers, conversation URLs, credentials, tokens,
 private machine paths, copied datasets, checkpoints, dependency bundles, or
 unrelated user changes.
 
-## Non-self-referential C/H/R sequence
+## C/H/P/D sequence
 
-Use distinct commits so the handoff never claims to review itself:
+Keep the stages distinct so every claim names an exact reviewed revision:
 
-1. `C` — commit the implementation, results, manifests, and other evidence to
-   be reviewed. Validate it, push it to the agreed work branch, and record its
-   full SHA and GitHub URL.
-2. `H` — add the three checkpoint files. `handoff.md` names `C` as the reviewed
-   revision and records the evidence available at `C`. Commit and push `H`.
-   Give the webpage the GitHub URL for `handoff.md` at `H` while explicitly
-   asking it to assess `C`.
-3. `R` — after the synchronous webpage exchange, fill `web-review.md` and
-   `decision.md`, reference both `C` and `H`, then commit and push them. Advice
-   accepted for later implementation becomes work for the next code commit;
-   never amend `C` or `H` to hide the sequence.
+1. `C` — Codex commits the implementation, results, manifests, and evidence to
+   be reviewed. Validate and push it to the agreed work branch.
+2. `H` — Codex adds the four checkpoint files. `handoff.md` names `C`, while
+   `pro-review.md`, `pro-plan.md`, and `decision.md` are pending. Commit and
+   push `H`, then stop local repository writes for the duration of the review.
+3. `P` — Pro reads `C` and `H`, replaces only the two Pro-owned pending files,
+   and commits them directly to the same work branch. The webpage reply reports
+   the write status, `P` SHA, changed paths, and a brief summary.
+4. `D` — Codex fetches and verifies `P`, fast-forwards only after the scope
+   check passes, independently adjudicates the advice in `decision.md`, and
+   commits and pushes `D`. Accepted work begins in a later code commit; do not
+   rewrite `C`, `H`, or `P`.
 
-Inspect status and diff before each commit. Never force-push, rewrite shared
-history, mutate the default branch, or silently change the remote. If push
-fails, keep the honest local state and report the exact blocker.
+Before each Codex commit, inspect status and diff. Never force-push, rewrite
+shared history, change repository visibility, or silently change the remote.
+If a push or fast-forward fails, keep the honest state and report the blocker.
 
-## `handoff.md`
+## Handoff content
 
 Use this shape, expanding sections as needed:
 
@@ -54,16 +58,17 @@ Use this shape, expanding sections as needed:
 
 - Status: verified | partial | blocked
 - Reviewed code/result commit C: <full SHA and GitHub URL>
-- Handoff commit H: pending until committed
 - Branch or PR: <name and URL>
 - Parent checkpoint: <path or none>
+- Pro write allowlist:
+  - `.auto-research/checkpoints/0001-<slug>/pro-review.md`
+  - `.auto-research/checkpoints/0001-<slug>/pro-plan.md`
 
 ## Objective and scope
 <What this work unit was intended to establish.>
 
 ## Codex's independent analysis
-<Diagnosis, alternatives considered, tentative recommendation, and what could
-falsify it.>
+<Diagnosis, alternatives, tentative recommendation, and falsifiers.>
 
 ## Material delta
 <What is meaningfully different from the previous checkpoint.>
@@ -81,80 +86,102 @@ falsify it.>
 <The consequential decision or audit outcome this review should inform.>
 
 ## Audit questions
-<All concrete questions needed for this decision; there is no arbitrary cap.>
+<Concrete questions needed for this decision; there is no arbitrary cap.>
 ```
 
-Because a commit cannot contain its own SHA, the `Handoff commit H` line may
-remain `pending until committed`; the audit prompt supplies the resolved full
-`H` SHA and URL. Never substitute `H` for the reviewed `C` revision.
+## Audit prompt and webpage receipt
 
-## Audit prompt
+Send a concise prompt containing the repository URL, work branch, full `C` and
+`H` SHAs, checkpoint URL at `H`, and the two exact writable paths. Ask Pro to:
 
-Send a concise prompt containing the repository URL, work branch or PR, full
-`C` and `H` SHAs, the checkpoint URL at `H`, and primary paths. Ask the adviser
-to distinguish facts observed in GitHub from inference and suggestion, check
-claim-to-evidence alignment, identify risks with precise repository evidence,
-analyze the requested decision, and propose actionable next steps with
-observable exit criteria.
+- distinguish repository observations from inference and proposals;
+- check claim-to-evidence alignment and identify precise risks;
+- write the complete audit to `pro-review.md`;
+- write the proposed next steps and observable exit criteria to `pro-plan.md`;
+- commit only those two files to the named branch;
+- leave a short webpage receipt rather than repeating the full review.
 
-Do not limit the number of findings, questions, or actions. Do not paste the
-repository, large logs, credentials, or private data. If the webpage cannot
-read GitHub, stop; do not paste source as a fallback.
+The receipt should be easy to verify visually:
 
-Record the exact target and complete prompt in commentary before the automatic
-send. Explicit `$auto-research` activation supplies the bounded send authority,
-so this notice is not another approval request.
+```text
+WRITEBACK: complete | blocked
+COMMIT: <full SHA or none>
+FILES: <the two allowed paths actually changed>
+SUMMARY: <one short paragraph or exact blocker>
+```
 
-## Complete-history read and incremental archive
+Do not ask Pro to modify code or implement its own plan. Do not paste the
+repository, large logs, credentials, or private data into the conversation.
+Record the exact target and complete outgoing prompt in commentary before the
+automatic send.
 
-Before sending, export and read the entire rendered conversation and verify its
-local archive marker. After the reply reaches a new assistant-message count and
-the page is idle, export and read the entire conversation again.
+## Verify P before using it
 
-Copy every message after the verified marker into `web-review.md`, verbatim and
-in order, including any user messages entered manually and any follow-up
-exchange. Do not copy messages at or before the marker into Git. Preserve
-visible links as provenance when relevant. Advance the marker only after `R` is
-committed and pushed successfully; if the conversation history before the
-marker changed, stop and require explicit resynchronization.
+After the webpage reports completion:
 
-If a new message itself contains credentials or private material that may not
-be committed, do not silently redact it while calling the archive verbatim.
-Pause publication, report the conflict to the user, and keep the review pending.
+1. Fetch the named remote branch without merging.
+2. Resolve `P` from the receipt and remote history; require it to descend from
+   `H` without an unrelated branch rewrite.
+3. Inspect `P`'s changed paths and content. Require the changed-path set to be a
+   non-empty subset of the two allowlisted files. Treat any source, config,
+   test, evidence, or other checkpoint change as out of scope.
+4. Verify the review names `C`, is repository-grounded, and preserves honest
+   unknown, partial, failed, and `NOT_RUN` states.
+5. Fast-forward the clean local work branch only after all checks pass.
 
-## `web-review.md`
+If Pro reports success but no matching commit exists, the branch diverges, or
+an out-of-scope path changed, stop. Do not execute the proposed plan, rewrite
+the remote commit, or infer the missing review from the chat receipt.
+
+## `pro-review.md`
 
 ```markdown
-# Web review for checkpoint 0001
+# Pro review for checkpoint 0001
 
-- Status: complete | incomplete | github-inaccessible
-- Provider: ChatGPT web in AdsPower/SunBrowser
-- Visible model label: <exact label>
-- Target conversation: <non-sensitive title only>
-- Sent/received: <timestamps with timezone>
+- Status: complete | partial | github-inaccessible | github-write-failed
 - Reviewed C: <full SHA>
 - Handoff H: <full SHA>
 - Repository-grounded: yes | partial | no
 
-## New conversation messages since the prior marker
+## Executive assessment
+<Concise overall judgment.>
 
-### <role>
-<Verbatim message text>
+## Verified findings
+<Findings with repository paths, commits, tests, or artifacts.>
 
-## Access or capture limitations
-<None, or exact truncation/generation/access problem.>
+## Risks, gaps, and unsupported claims
+<Prioritized issues and why they matter.>
+
+## Open questions and uncertainty
+<Facts not established from the repository.>
 ```
 
-Do not summarize in place of the raw new response. The full verbatim assistant
-response is required even when it is long.
+## `pro-plan.md`
+
+```markdown
+# Pro proposed plan for checkpoint 0001
+
+- Based on C: <full SHA>
+- Based on H: <full SHA>
+
+## Recommended next actions
+<Ordered actions with rationale and observable exit criteria.>
+
+## Alternatives and trade-offs
+<Consequential choices that Codex should adjudicate.>
+
+## Suggested validation
+<Tests, experiments, or audits; do not claim they were run.>
+```
 
 ## `decision.md`
 
 ```markdown
-# Decision after web review 0001
+# Codex decision after Pro review 0001
 
 - Reviewed C: <full SHA>
 - Handoff H: <full SHA>
+- Pro commit P: <full SHA>
 
 ## Codex reassessment
 <Independent comparison of the advice with repository evidence.>
@@ -165,12 +192,13 @@ response is required even when it is long.
 | <recommendation> | accepted/rejected/deferred | <reason> |
 
 ## Next bounded plan
-<Accepted actions with observable exit criteria; no arbitrary item cap.>
+<Accepted actions with observable exit criteria.>
 
 ## Remaining disagreement or user authority required
-<None, cheap discriminating test, or precise escalation.>
+<None, a cheap discriminating test, or a precise escalation.>
 ```
 
-If a major disagreement merits follow-up, complete that synchronous exchange
-before `R` and append it verbatim. Stop repetitive debate and ask the user when
-resolution requires expensive work, changed scope, or new authority.
+If a major disagreement merits follow-up, ask Pro to update the same two files
+in a new scoped commit after receiving new evidence. Stop repetitive debate and
+ask the user when resolution requires expensive work, changed scope, or new
+authority.

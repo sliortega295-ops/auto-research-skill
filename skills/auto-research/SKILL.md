@@ -1,6 +1,6 @@
 ---
 name: auto-research
-description: Run an explicitly invoked, durable research and development loop in which Codex executes and a dedicated ChatGPT Pro webpage provides occasional planning and audit advice through GitHub checkpoints. Use only when the user explicitly names $auto-research; never activate it implicitly for ordinary coding, browsing, or research tasks.
+description: Run an explicitly invoked, durable research and development loop in which Codex executes and a dedicated ChatGPT Pro webpage occasionally audits the work and writes review and proposed-plan artifacts directly to GitHub checkpoints. Use only when the user explicitly names $auto-research; never activate it implicitly for ordinary coding, browsing, or research tasks.
 ---
 
 # Auto Research
@@ -8,7 +8,9 @@ description: Run an explicitly invoked, durable research and development loop in
 Coordinate substantial project work between Codex and one dedicated ChatGPT
 web conversation. Codex owns source inspection, implementation, experiments,
 validation, independent reasoning, and every final decision. The webpage is an
-advisory planner and auditor. GitHub is the shared, versioned source of truth.
+advisory planner and auditor that may write only its assigned checkpoint
+artifacts. GitHub is the shared, versioned source of truth; the chat transcript
+is not a second archive.
 
 This is a controller skill. Invoke relevant domain skills for coding,
 profiling, literature, experiment design, paper writing, or submission checks
@@ -24,7 +26,9 @@ For the active invocation, the user grants these bounded standing permissions:
 
 - commit and push task-scoped changes to the already agreed GitHub work branch;
 - select the binding's exact visible model label and send qualifying review
-  packets to the bound ChatGPT conversation without seeking approval again.
+  packets to the bound ChatGPT conversation without seeking approval again;
+- ask that bound adviser to update and commit only the pre-created
+  `pro-review.md` and `pro-plan.md` files for the active checkpoint.
 
 This does not authorize committing unrelated user changes, modifying or
 force-pushing the default branch, rewriting history, changing remotes or
@@ -32,6 +36,11 @@ repository visibility, merging a PR, publishing a release, spending
 substantial resources, or contacting any other conversation or person. If the
 checked-out branch is the default branch or the work branch is ambiguous, ask
 the user to identify the work branch before publishing.
+
+The webpage must not modify source code, tests, configurations, manifests,
+experiment outputs, papers, existing evidence, `handoff.md`, or `decision.md`.
+Giving it GitHub write access does not expand the project's scope or make its
+recommendations authoritative.
 
 ## Establish or recover the project contract
 
@@ -51,8 +60,9 @@ Before changing the repository:
 The user manually creates and opens one dedicated ChatGPT conversation per
 project. Never create, open, or navigate to that conversation automatically.
 Bind by stable conversation URL, not tab ID or tab order. Keep the AdsPower
-environment, conversation URL/title, model label, and archive marker only in
-the local registry; never commit them.
+environment, conversation URL/title, and model label only in the local
+registry; never commit them. Legacy archive-marker fields may remain
+in an existing registry but are not used by this workflow.
 
 The expected visible model label is `Pro` unless the binding says otherwise.
 For this workflow, record that as the currently visible ChatGPT 5.6 Pro choice;
@@ -85,26 +95,34 @@ When consultation is justified, follow
 [github-handoff.md](references/github-handoff.md) exactly. Its core sequence is:
 
 1. `C`: commit and push the code, results, and evidence to review.
-2. `H`: create a checkpoint containing `handoff.md`, a pending
-   `web-review.md`, and a pending `decision.md`; make the handoff reference the
-   full `C` SHA, then commit and push it.
+2. `H`: create a checkpoint containing `handoff.md`, pending `pro-review.md`
+   and `pro-plan.md` files, and a pending `decision.md`; make the handoff
+   reference the full `C` SHA, then commit and push it.
 3. Inspect the exact bound conversation by stable URL. If it is not already
    open, ask the user to open it; do not navigate there.
-4. Export and read the complete rendered conversation. Verify the stored
-   archive marker and use only the newly unarchived messages in the checkpoint.
-5. Verify the page is idle. Select the stored visible model label if needed,
-   record the exact target and prompt in commentary, and send the review packet.
-6. Wait synchronously for a new assistant message and idle state. Do not work
-   on other project tasks while waiting.
-7. Export and read the complete conversation again. Preserve every new message
-   verbatim in `web-review.md`; do not commit the older conversation history.
-8. Independently adjudicate the advice in `decision.md`, then create and push
-   response/decision commit `R`. Advance the local archive marker only after
-   the review record is committed and pushed successfully.
+4. Verify the page is idle. Select the stored visible model label if needed,
+   record the exact target and prompt in commentary, and send a concise review
+   request containing the exact GitHub revision, branch, checkpoint URL, and
+   the two paths the adviser may write.
+5. Ask the adviser to write its complete audit to `pro-review.md`, its proposed
+   next plan to `pro-plan.md`, and commit those two files as `P`. Its webpage
+   reply should be only a short receipt: write status, commit SHA, paths, and a
+   brief summary or blocker.
+6. Wait synchronously for that receipt and for the page to become idle. Do not
+   export the conversation or work on other project tasks while waiting.
+7. Fetch GitHub and verify that `P` descends from `H` and changes only the two
+   allowed files in the active checkpoint. Stop on any source-code or
+   out-of-scope change; do not execute or silently repair it.
+8. Read the committed review and plan, independently adjudicate them in
+   `decision.md`, then commit and push Codex decision commit `D`.
 
 If ChatGPT cannot read the referenced GitHub revision, stop that consultation,
 record it as not repository-grounded, and report the access problem. Do not
 paste source code or large logs into the conversation as a fallback.
+
+If it can read but cannot write the two assigned files, keep the checkpoint as
+`github-write-pending`. Do not silently fall back to exporting or committing a
+long chat transcript; ask the user before changing the handoff mechanism.
 
 ## Adjudicate; do not obey
 
@@ -136,7 +154,7 @@ is unavailable, report the implementation and validation state but keep the
 overall result explicitly `final-audit-pending`; do not claim the delegated
 auto-research project is complete.
 
-Finish with the exact branch and SHAs, checkpoint URL, validation status,
-advice dispositions, remaining uncertainty, and next bounded action. Keep
-measurements, diagnostics, theory, adviser suggestions, and planned experiments
-distinct.
+Finish with the exact branch and `C`, `H`, `P`, and `D` SHAs, checkpoint URL,
+validation status, advice dispositions, remaining uncertainty, and next bounded
+action. Keep measurements, diagnostics, theory, adviser suggestions, and
+planned experiments distinct.
