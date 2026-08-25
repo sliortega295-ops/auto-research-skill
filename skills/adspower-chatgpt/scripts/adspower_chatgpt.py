@@ -145,6 +145,25 @@ def maybe_canonical_conversation_url(url: str) -> str | None:
         return None
 
 
+def canonical_project_url(url: str) -> str:
+    try:
+        parsed = urllib.parse.urlparse(url)
+        host = (parsed.hostname or "").lower()
+        port = parsed.port
+    except ValueError as exc:
+        raise SkillError(f"Invalid ChatGPT project URL: {exc}") from exc
+    if parsed.scheme not in {"http", "https"} or not is_chatgpt_url(url):
+        raise SkillError("Project URL must use http(s) on chatgpt.com")
+    if parsed.username or parsed.password:
+        raise SkillError("Project URL must not contain credentials")
+    if port not in {None, 80, 443}:
+        raise SkillError("Project URL must not use a custom port")
+    path = re.sub(r"/+$", "", parsed.path or "")
+    if not re.fullmatch(r"/g/g-p-[^/]+(?:/project)?", path):
+        raise SkillError("Project URL must identify a ChatGPT project page")
+    return urllib.parse.urlunsplit(("https", host, path, "", ""))
+
+
 def list_tabs(environment: dict[str, Any]) -> list[dict[str, Any]]:
     targets = http_json(f"http://127.0.0.1:{environment['cdp_port']}/json/list")
     tabs: list[dict[str, Any]] = []
@@ -423,6 +442,22 @@ INSPECT_JS = r"""
 """
 
 
+PROJECT_LINKS_JS = r"""
+(() => {
+  const normalize = (value) => (value || '').trim().replace(/\s+/g, ' ');
+  const found = [];
+  for (const element of document.querySelectorAll('a[href]')) {
+    const href = element.href || '';
+    if (!/\/g\/g-p-[^/]+(?:\/project)?(?:[?#]|$)/.test(href)) continue;
+    const raw = element.innerText || element.getAttribute('aria-label') || '';
+    const firstLine = raw.split(/\n/).map((line) => normalize(line)).find(Boolean) || '';
+    if (firstLine) found.push({label: firstLine, href});
+  }
+  return found;
+})()
+"""
+
+
 MODEL_STATE_JS = r"""
 (() => {
   const isVisible = (el) => {
@@ -600,6 +635,93 @@ def inspect(cdp: CDP) -> dict[str, Any]:
     if not isinstance(result, dict):
         raise SkillError("ChatGPT page inspection returned an unexpected result")
     return result
+
+
+def project_link_candidates(cdp: CDP) -> list[dict[str, str]]:
+    raw = cdp.evaluate(PROJECT_LINKS_JS)
+    if not isinstance(raw, list):
+        raise SkillError("ChatGPT project-link inspection returned an unexpected result")
+    candidates: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        label = " ".join(str(item.get("label") or "").split())
+        href = item.get("href")
+        if not label or not isinstance(href, str):
+            continue
+        try:
+            project_url = canonical_project_url(href)
+        except SkillError:
+            continue
+        identity = (label.casefold(), project_url)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        candidates.append({"label": label, "url": project_url})
+    return candidates
+
+
+def find_project_url(environment: dict[str, Any], project_name: str) -> tuple[str, list[str]]:
+    normalized_name = " ".join(project_name.split()).casefold()
+    if not normalized_name:
+        raise SkillError("Project name is empty")
+    matches: set[str] = set()
+    available: set[str] = set()
+    for tab in list_tabs(environment):
+        websocket_url = tab.get("webSocketDebuggerUrl")
+        if not websocket_url:
+            continue
+        cdp = CDP(websocket_url)
+        try:
+            candidates = project_link_candidates(cdp)
+        finally:
+            cdp.close()
+        for candidate in candidates:
+            available.add(candidate["label"])
+            if candidate["label"].casefold() == normalized_name:
+                matches.add(candidate["url"])
+    if not matches:
+        suffix = f" Available projects: {sorted(available)}" if available else ""
+        raise SkillError(f"No exact ChatGPT project matched {project_name!r}.{suffix}")
+    if len(matches) != 1:
+        raise SkillError(
+            f"Project name {project_name!r} resolved to multiple URLs: {sorted(matches)}"
+        )
+    return next(iter(matches)), sorted(available)
+
+
+def create_background_target(environment: dict[str, Any], url: str) -> dict[str, Any]:
+    version = http_json(f"http://127.0.0.1:{environment['cdp_port']}/json/version")
+    websocket_url = version.get("webSocketDebuggerUrl") if isinstance(version, dict) else None
+    if not websocket_url:
+        raise SkillError("AdsPower browser target does not expose a browser-level CDP WebSocket")
+    browser = CDP(websocket_url)
+    try:
+        result = browser.call("Target.createTarget", {"url": url, "background": True})
+    finally:
+        browser.close()
+    target_id = result.get("targetId") if isinstance(result, dict) else None
+    if not target_id:
+        raise SkillError("CDP did not return a target ID for the background project tab")
+    deadline = time.monotonic() + 12.0
+    while time.monotonic() < deadline:
+        matching = [tab for tab in list_tabs(environment) if tab.get("id") == target_id]
+        if len(matching) == 1:
+            return matching[0]
+        time.sleep(0.2)
+    raise SkillError("The new background ChatGPT target did not become available")
+
+
+def wait_for_editor(cdp: CDP, timeout: float = 20.0) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    state = inspect(cdp)
+    while not state.get("editor_present"):
+        if time.monotonic() >= deadline:
+            raise SkillError("The background ChatGPT project page did not become ready")
+        time.sleep(0.25)
+        state = inspect(cdp)
+    return state
 
 
 def normalize_label(value: str | None) -> str:
@@ -897,6 +1019,34 @@ def command_tabs(args: argparse.Namespace) -> None:
     )
 
 
+def command_open_project(args: argparse.Namespace) -> None:
+    require_confirm(args)
+    environment = select_environment(args.environment)
+    project_url, available = find_project_url(environment, args.project_name)
+    tab = create_background_target(environment, project_url)
+    websocket_url = tab.get("webSocketDebuggerUrl")
+    if not websocket_url:
+        raise SkillError("The new background ChatGPT tab does not expose a CDP WebSocket")
+    cdp = CDP(websocket_url)
+    try:
+        state = wait_for_editor(cdp)
+    finally:
+        cdp.close()
+    if state.get("visibility") == "visible":
+        raise SkillError("The new project target unexpectedly became the visible browser tab")
+    emit(
+        {
+            "action": "open-project",
+            "environment": environment["environment"],
+            "project_name": " ".join(args.project_name.split()),
+            "project_url": project_url,
+            "available_projects": available,
+            "tab": tab_summary(tab),
+            "state": state,
+        }
+    )
+
+
 def command_inspect(args: argparse.Namespace) -> None:
     environment, tab, cdp = open_selected(args)
     try:
@@ -1115,6 +1265,14 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("tabs", help="List ChatGPT tabs in one environment")
     subparsers.add_parser("inspect", help="Read bounded visible page state and a text excerpt")
 
+    open_project = subparsers.add_parser(
+        "open-project", help="Open an exact ChatGPT project in a new background tab"
+    )
+    open_project.add_argument("--project-name", required=True, help="Exact visible project name")
+    open_project.add_argument(
+        "--confirm", action="store_true", help="Confirm the explicitly requested background tab"
+    )
+
     export_conversation_parser = subparsers.add_parser(
         "export-conversation",
         help="Export the complete rendered user/assistant conversation to scratch JSON",
@@ -1163,6 +1321,8 @@ def main() -> int:
             command_tabs(args)
         elif args.command == "inspect":
             command_inspect(args)
+        elif args.command == "open-project":
+            command_open_project(args)
         elif args.command == "export-conversation":
             command_export_conversation(args)
         elif args.command == "screenshot":

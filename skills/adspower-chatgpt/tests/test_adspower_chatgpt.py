@@ -19,8 +19,9 @@ SPEC.loader.exec_module(MODULE)
 
 
 class FakeCDP:
-    def __init__(self, evaluations):
+    def __init__(self, evaluations, call_results=None):
         self.evaluations = list(evaluations)
+        self.call_results = list(call_results or [])
         self.calls = []
         self.closed = False
 
@@ -39,6 +40,8 @@ class FakeCDP:
 
     def call(self, method, params=None):
         self.calls.append((method, params))
+        if self.call_results:
+            return self.call_results.pop(0)
         return {}
 
     def close(self):
@@ -83,6 +86,80 @@ class AdsPowerChatGPTTests(unittest.TestCase):
                 "https://chatgpt.com/g/g-project/c/second#latest",
             )
         self.assertEqual(selected["id"], "two")
+
+    def test_canonical_project_url(self):
+        self.assertEqual(
+            MODULE.canonical_project_url(
+                "https://chatgpt.com/g/g-p-project123/project/?utm_source=test"
+            ),
+            "https://chatgpt.com/g/g-p-project123/project",
+        )
+        for invalid in (
+            "https://example.com/g/g-p-project123/project",
+            "https://chatgpt.com/c/conversation",
+            "https://chatgpt.com/g/g-p-project123/c/conversation",
+        ):
+            with self.subTest(invalid=invalid), self.assertRaises(MODULE.SkillError):
+                MODULE.canonical_project_url(invalid)
+
+    def test_project_link_candidates_are_exact_and_deduplicated(self):
+        raw = [
+            {
+                "label": " auto   research ",
+                "href": "https://chatgpt.com/g/g-p-project123/project?source=sidebar",
+            },
+            {
+                "label": "auto research",
+                "href": "https://chatgpt.com/g/g-p-project123/project",
+            },
+            {"label": "not a project", "href": "https://example.com/project"},
+        ]
+        cdp = FakeCDP([(MODULE.PROJECT_LINKS_JS, raw)])
+        self.assertEqual(
+            MODULE.project_link_candidates(cdp),
+            [
+                {
+                    "label": "auto research",
+                    "url": "https://chatgpt.com/g/g-p-project123/project",
+                }
+            ],
+        )
+
+    def test_create_background_target_never_activates_it(self):
+        environment = {"cdp_port": 1234}
+        browser = FakeCDP([], call_results=[{"targetId": "new-tab"}])
+        created = {
+            "id": "new-tab",
+            "title": "ChatGPT",
+            "url": "https://chatgpt.com/g/g-p-project123/project",
+            "webSocketDebuggerUrl": "ws://127.0.0.1/new-tab",
+        }
+        with (
+            mock.patch.object(
+                MODULE,
+                "http_json",
+                return_value={"webSocketDebuggerUrl": "ws://127.0.0.1/browser"},
+            ),
+            mock.patch.object(MODULE, "CDP", return_value=browser),
+            mock.patch.object(MODULE, "list_tabs", return_value=[created]),
+        ):
+            result = MODULE.create_background_target(
+                environment, "https://chatgpt.com/g/g-p-project123/project"
+            )
+        self.assertEqual(result["id"], "new-tab")
+        self.assertEqual(
+            browser.calls,
+            [
+                (
+                    "Target.createTarget",
+                    {
+                        "url": "https://chatgpt.com/g/g-p-project123/project",
+                        "background": True,
+                    },
+                )
+            ],
+        )
+        self.assertTrue(browser.closed)
 
     def test_export_preserves_messages_and_hashes(self):
         raw = {

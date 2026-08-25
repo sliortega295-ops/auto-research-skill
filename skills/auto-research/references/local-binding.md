@@ -25,8 +25,19 @@ start a consultation.
 
 ## Bind or inspect
 
-The user must first create and open the dedicated conversation in AdsPower.
-Resolve its stable URL read-only, then run:
+Prefer an existing dedicated conversation. If the user explicitly asks for a
+fresh conversation in a named ChatGPT project, `$adspower-chatgpt` may open the
+exact project as a new background CDP target, send the first prompt there, and
+then resolve the resulting stable URL without activating the foreground:
+
+```bash
+browser_helper="${CODEX_HOME:-$HOME/.codex}/skills/adspower-chatgpt/scripts/adspower_chatgpt.py"
+
+python3 "$browser_helper" --environment YOUR_ADSPOWER_ENV \
+  open-project --project-name 'PROJECT NAME' --confirm
+```
+
+Whether opened manually or in the background, resolve its stable URL and bind:
 
 ```bash
 registry_helper="${CODEX_HOME:-$HOME/.codex}/skills/auto-research/scripts/project_registry.py"
@@ -51,6 +62,6 @@ arbitrary GitHub changes. For `$auto-research`, the outgoing checkpoint prompt
 must name the exact branch and the two pre-created Pro-owned files. The GitHub
 commit `P`, not an exported chat transcript, is the authoritative response.
 
-If the bound conversation is not open, ask the user to open it. Never launch,
-navigate, or replace the target automatically. If the stable URL or repository
-identity no longer matches, stop instead of guessing.
+If an existing bound conversation is not open, ask the user to open it. Never
+repurpose one of the user's other tabs or take foreground control. If the stable
+URL or repository identity no longer matches, stop instead of guessing.

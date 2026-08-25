@@ -1,16 +1,16 @@
 ---
 name: adspower-chatgpt
-description: Inspect and interact with the user's already-running ChatGPT web conversations in AdsPower/SunBrowser on local Linux. Use visible GUI control for ordinary navigation, sending, waiting, and short receipts; use the helper only when exact targeting or structured extraction is materially useful. Do not use for ordinary Chrome, the in-app browser, or the ChatGPT API.
+description: Inspect and interact with the user's already-running ChatGPT web conversations in AdsPower/SunBrowser on local Linux through background CDP control that does not take over the user's mouse, keyboard, active window, or active tab. Use for exact targeting, background project-chat creation, model selection, sending, waiting, short receipts, screenshots, and optional structured extraction. Do not use for ordinary Chrome, the in-app browser, or the ChatGPT API.
 ---
 
 # AdsPower ChatGPT
 
 Operate an existing authenticated ChatGPT page without copying its profile,
-cookies, or credentials. Prefer direct visible GUI interaction for ordinary
-click, type, send, and wait actions. Use the deterministic CDP helper when an
-exact stable-URL binding, long-text fidelity, structured extraction, or selector
-diagnosis materially improves reliability. Use fresh screenshots whenever GUI
-coordinates are needed.
+cookies, or credentials. Prefer the deterministic CDP helper because it can
+work in a background tab without taking over the user's physical input or
+foreground window. Never use X11 window activation, mouse movement, clicks, or
+keystrokes while the user may be working. Visible GUI control is a fallback
+only after the user explicitly says the foreground may be occupied.
 
 ## Safety and authorization
 
@@ -34,10 +34,15 @@ coordinates are needed.
 - Never send or change models while the page is generating. Wait for it to
   finish. Never click Stop without a separate explicit request.
 - Inspect again after every mutation and verify the visible result.
+- Background operation may create or change the dedicated ChatGPT tab required
+  by the task, but it must not activate that tab or alter the user's current
+  foreground focus.
 
-The helper accepts only `chatgpt.com` page targets and never launches or
-navigates a browser. If the intended conversation is not already open, ask the
-user to open it.
+The helper accepts only `chatgpt.com` targets. It may open a new background tab
+at an exact project link only through `open-project --confirm`; it never
+launches a browser process or activates the new target. If an intended existing
+conversation is not open, ask the user to open it rather than navigating a
+different tab.
 
 ## Helper setup and read-only inspection
 
@@ -60,6 +65,19 @@ python3 "$helper" --environment "$environment_name" \
 ignoring query parameters and fragments. `--tab-id` and `--tab-title` remain
 available for inspection, but never bind a durable workflow to tab order or a
 temporary target ID. Ambiguous selectors fail closed.
+
+When the user explicitly requests a fresh conversation in an existing ChatGPT
+project, open its project page as a new background target without activating it:
+
+```bash
+python3 "$helper" --environment "$environment_name" \
+  open-project --project-name 'auto research' --confirm
+```
+
+This finds an exact project link in an authenticated ChatGPT tab and opens a
+separate background project page. Sending the first prompt there creates the
+project conversation; then bind its resulting stable `/c/` URL. It does not
+move the mouse, press keys, activate a window, or switch the foreground tab.
 
 ## Optional complete rendered-conversation export
 
@@ -99,7 +117,7 @@ verifies the composer label afterward. If it is already `Pro`, the command is a
 verified no-op. `Pro` is the user-facing label; do not infer an unexposed
 internal model identifier from it.
 
-## Optional high-fidelity draft, send, and wait
+## Background draft, send, and wait
 
 Put prompt text in a UTF-8 scratch file so it is not exposed in the process
 command line. Use `apply_patch` to create it when practical.
@@ -124,9 +142,10 @@ python3 "$helper" --environment "$environment_name" \
   wait --after-assistant-count <prior-count> --timeout 1800
 ```
 
-After waiting, inspect and export again. A send is not successful merely because
-the button was clicked; verify the new user message, new assistant count, idle
-state, and complete exported response.
+After waiting, inspect again. A send is not successful merely because the DOM
+button was clicked; verify the new user message, new assistant count, idle
+state, and the expected short receipt. Export only when the task genuinely
+requires the full conversation.
 
 `new-chat --confirm` is available only when the user specifically asks to click
 the visible New chat control. It is prohibited as a way to recover a missing
@@ -136,9 +155,10 @@ the visible New chat control. It is prohibited as a way to recover a missing
 
 For `$auto-research`, keep the webpage role deliberately small:
 
-1. Visually verify the bound conversation, visible `Pro` label, and idle state.
-2. Send the repository-grounded checkpoint prompt through the visible GUI; use
-   the helper only if exact long-text transfer or target verification is needed.
+1. Verify the bound background conversation, visible `Pro` label, and idle
+   state through CDP without activating the tab.
+2. Send the repository-grounded checkpoint prompt through the background
+   helper.
 3. Wait until the page is idle and inspect only the latest short receipt. It
    should report `WRITEBACK`, `COMMIT`, `FILES`, and a one-paragraph `SUMMARY`.
 4. Verify the reported commit and changed-path allowlist with Git. Do not export
@@ -154,16 +174,17 @@ python3 "$helper" --environment "$environment_name" \
   --conversation-url "$conversation" screenshot
 ```
 
-If CDP selectors fail but the window is visible on X11, locate the root
-SunBrowser process without printing its full command line, capture its exact
-window geometry under the same scratch root, inspect the current screenshot,
-and restore any temporary window movement. Never reuse coordinates after the
-layout changes and never fall back to a fresh browser profile.
+Prefer the helper's CDP screenshot because it captures the background target
+without changing focus. If CDP selectors fail, do not switch to X11 input while
+the user is working. Report the failure or wait until the user explicitly
+authorizes foreground control. Never fall back to a fresh browser profile.
 
 ## Failure handling
 
 - No live environment: ask the user to start the intended AdsPower profile.
 - Bound URL not open: ask the user to open that conversation; do not navigate.
+- Exact project not found: report the available project names or ask the user
+  to open it; do not guess a similarly named project.
 - Multiple matches: report candidates and require an exact stable URL or other
   unique selector before mutation.
 - DOM selector failure: capture the page and inspect it; do not repeatedly click

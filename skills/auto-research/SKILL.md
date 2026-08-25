@@ -57,12 +57,13 @@ Before changing the repository:
    publishable, and the dedicated conversation is already open in its stored
    AdsPower environment.
 
-The user manually creates and opens one dedicated ChatGPT conversation per
-project. Never create, open, or navigate to that conversation automatically.
-Bind by stable conversation URL, not tab ID or tab order. Keep the AdsPower
-environment, conversation URL/title, and model label only in the local
-registry; never commit them. Legacy archive-marker fields may remain
-in an existing registry but are not used by this workflow.
+Use one dedicated ChatGPT conversation per project. Prefer an existing bound
+conversation. When the user explicitly requests a fresh conversation in a
+named ChatGPT project, create it as a new background CDP target without
+activating the browser window or tab; never reuse or navigate one of the user's
+other conversations. Bind the resulting stable conversation URL, not its
+temporary target ID or tab order. Keep the AdsPower environment, conversation
+URL/title, and model label only in the local registry; never commit them.
 
 The expected visible model label is `Pro` unless the binding says otherwise.
 For this workflow, record that as the currently visible ChatGPT 5.6 Pro choice;
@@ -98,8 +99,9 @@ When consultation is justified, follow
 2. `H`: create a checkpoint containing `handoff.md`, pending `pro-review.md`
    and `pro-plan.md` files, and a pending `decision.md`; make the handoff
    reference the full `C` SHA, then commit and push it.
-3. Inspect the exact bound conversation by stable URL. If it is not already
-   open, ask the user to open it; do not navigate there.
+3. Inspect the exact bound background conversation by stable URL without
+   activating its window or tab. If an existing bound conversation is not
+   open, ask the user to open it; do not repurpose another tab.
 4. Verify the page is idle. Select the stored visible model label if needed,
    record the exact target and prompt in commentary, and send a concise review
    request containing the exact GitHub revision, branch, checkpoint URL, and
@@ -108,8 +110,9 @@ When consultation is justified, follow
    next plan to `pro-plan.md`, and commit those two files as `P`. Its webpage
    reply should be only a short receipt: write status, commit SHA, paths, and a
    brief summary or blocker.
-6. Wait synchronously for that receipt and for the page to become idle. Do not
-   export the conversation or work on other project tasks while waiting.
+6. Wait synchronously in the background for that receipt and for the page to
+   become idle. Do not export the conversation, take foreground control, or
+   work on other project tasks while waiting.
 7. Fetch GitHub and verify that `P` descends from `H` and changes only the two
    allowed files in the active checkpoint. Stop on any source-code or
    out-of-scope change; do not execute or silently repair it.
