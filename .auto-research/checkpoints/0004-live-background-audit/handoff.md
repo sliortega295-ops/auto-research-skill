@@ -111,6 +111,18 @@ before it coordinates substantial project and paper research.
    ceremony?
 6. Prioritize recommendations with observable exit criteria. Separate facts
    verified from this repository from inference and proposals.
+7. Audit the repository for removable redundancy: duplicated code or control
+   paths, overlapping skill responsibilities, dead compatibility layers,
+   repeated documentation, unnecessary abstractions, and ceremony that does
+   not materially improve safety or research quality. For every deletion or
+   consolidation candidate, cite the exact paths or mechanisms, explain why it
+   is redundant, state the regression risk, and give a post-change validation
+   check. Do not recommend deletion merely to reduce line count.
+8. Identify design choices that are brittle, over-coupled, hard to recover,
+   difficult to test, or needlessly complex. Distinguish defects that should be
+   fixed before initial use from deliberate trade-offs and optional cleanup,
+   then include a safely ordered simplification plan with observable exit
+   criteria.
 
 ## Write instructions for ChatGPT Pro
 
